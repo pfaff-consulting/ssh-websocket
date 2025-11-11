@@ -1,0 +1,42 @@
+name: Master branch CI
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release_prod:
+    runs-on: self-hosted
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup GO
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.3
+
+      - name: Build binary
+        run: |
+          mkdir -p build
+          go mod tidy
+          go build -o ./build/ssh-websocket
+
+      - name: Tag with next sematic version
+        uses: pfaff-consulting/rod/.github/actions/tag@develop
+        with:
+          release_type: minor
+
+      - name: Create GitHub RELEASE
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ env.VERSION }}"
+          name: "Release ${{ env.VERSION }}"
+          files: build/ssh-websocket

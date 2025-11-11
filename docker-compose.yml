@@ -1,0 +1,18 @@
+services:
+  ssh-websocket:
+    image: ssh-websocket:local
+    container_name: ssh-websocket
+    build: 
+      dockerfile: Dockerfile
+      context: .
+      target: final
+    ports:
+      - "2280:2280"
+    volumes:
+      - "./config.yaml:/config.yaml"
+
+  ssh_container:
+    image: rastasheep/ubuntu-sshd:18.04
+    container_name: ssh-container
+    ports:
+      - "2222:22"

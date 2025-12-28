@@ -5,3 +5,9 @@ ssh:
 websocket:
   host: 0.0.0.0
   port: 2280
+
+fail-ban:
+  storage-file: ./fail.log
+  attempts: 3
+  timespan: 900 # 15 minutes
+  ban-time: 86400 # 24 hours

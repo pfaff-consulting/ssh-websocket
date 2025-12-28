@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/goccy/go-yaml"
+	"github.com/pfaff-consulting/ssh-websocket/internal/failban"
 )
 
 type Config struct {
@@ -19,6 +20,13 @@ type Config struct {
 		Host string `yaml:"host"`
 		Port int    `yaml:"port"`
 	} `yaml:"websocket"`
+
+	FailBan struct {
+		StorageFile string `yaml:"storage-file"`
+		Attempts    int    `yaml:"attempts"`
+		Timespan    int    `yaml:"timespan"`
+		BanTime     int    `yaml:"ban-time"`
+	} `yaml:"fail-ban"`
 }
 
 func loadConfig() *Config {
@@ -61,9 +69,15 @@ func loadConfig() *Config {
 
 func main() {
 	config := loadConfig()
+	failBanManager := failban.New(
+		config.FailBan.StorageFile,
+		config.FailBan.Attempts,
+		config.FailBan.Timespan,
+		config.FailBan.BanTime,
+	)
 
 	http.HandleFunc("/ssh", func(w http.ResponseWriter, r *http.Request) {
-		handleWebSocket(w, r, config)
+		handleWebSocket(w, r, config, failBanManager)
 	})
 
 	fmt.Printf("Starting HTTP server on %s:%d\n", config.Websocket.Host, config.Websocket.Port)

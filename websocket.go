@@ -7,8 +7,16 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/pfaff-consulting/ssh-websocket/internal/failban"
 	"golang.org/x/crypto/ssh"
 )
+
+type WSMessage struct {
+	Type string `json:"type"`
+	Data string `json:"data,omitempty"`
+	Rows int    `json:"rows,omitempty"`
+	Cols int    `json:"cols,omitempty"`
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -17,7 +25,7 @@ var upgrader = websocket.Upgrader{
 	// todo: generate SSH key by aws and use it as domain like xxx.exenv.pfaff.app
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request, config *Config) {
+func handleWebSocket(w http.ResponseWriter, r *http.Request, config *Config, failBan *failban.Manager) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
@@ -25,14 +33,22 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, config *Config) {
 	}
 	defer ws.Close()
 
+	ip := r.RemoteAddr
+	if failBan.IsBlocked(ip) {
+		_ = ws.WriteMessage(websocket.TextMessage, []byte("blocked"))
+		return
+	}
+
 	_, msg, err := ws.ReadMessage()
 	if err != nil {
+		failBan.AddFailedAttempt(ip)
 		log.Printf("Error while reading auth data: %v", err)
 		return
 	}
 
 	var connectionInfo SSHConnectionInfo
 	if err := json.Unmarshal(msg, &connectionInfo); err != nil {
+		failBan.AddFailedAttempt(ip)
 		log.Printf("Error while parsing auth data: %v", err)
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("invalid login format"))
 		return
@@ -42,9 +58,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, config *Config) {
 
 	sshConn, err := tryConnectToSsh(connectionInfo)
 	if err != nil {
-		// if error == SSH dial error / SSH session error (?)
-		// => add to blacklist (count > 5 within last 10 minutes) for 24h at least
-
+		failBan.AddFailedAttempt(ip)
 		log.Printf("SSH auth error: %v", err)
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("login failed"))
 		return
@@ -74,9 +88,26 @@ func handleSshStream(wsConn *websocket.Conn, sshConn *SSHConnection) {
 			log.Printf("WebSocket closed: %v", err)
 			return
 		}
-		if _, err := sshConn.Stdin.Write(msg); err != nil {
-			log.Printf("Error writing to SSH stdin: %v", err)
-			return
+
+		var wsMsg WSMessage
+
+		if err := json.Unmarshal(msg, &wsMsg); err != nil {
+			log.Printf("Error parsing WebSocket message: %v", err)
+			continue
+
+		}
+		switch wsMsg.Type {
+		case "data":
+			if _, err := sshConn.Stdin.Write([]byte(wsMsg.Data)); err != nil {
+				log.Printf("Error writing to SSH stdin: %v", err)
+				return
+			}
+		case "resize":
+			if err := sshConn.Session.WindowChange(wsMsg.Cols, wsMsg.Rows); err != nil {
+				log.Printf("Error changing window size: %v", err)
+			}
+		default:
+			log.Printf("Unknown message type: %s", wsMsg.Type)
 		}
 	}
 }

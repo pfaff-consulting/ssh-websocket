@@ -103,7 +103,7 @@ func handleSshStream(wsConn *websocket.Conn, sshConn *SSHConnection) {
 				return
 			}
 		case "resize":
-			if err := sshConn.Session.WindowChange(wsMsg.Cols, wsMsg.Rows); err != nil {
+			if err := sshConn.Session.WindowChange(wsMsg.Rows, wsMsg.Cols); err != nil {
 				log.Printf("Error changing window size: %v", err)
 			}
 		default:
